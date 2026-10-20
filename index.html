@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1f2a37">
+<title>수신상태 체크</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Malgun Gothic", "Noto Sans KR", sans-serif; background: #f3f4f6; color: #111827; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+
+  #map { flex: 1 1 auto; min-height: 120px; position: relative; }
+  .map-btns { position: absolute; right: 10px; top: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+  .map-btns button { width: 46px; height: 46px; border: 0; border-radius: 10px; background: #fff; font-size: 20px; box-shadow: 0 1px 6px rgba(0,0,0,.35); }
+  .map-btns button.on { background: #2563eb; color: #fff; }
+
+  #gps { position: absolute; left: 10px; top: 10px; z-index: 1000; background: rgba(255,255,255,.92); border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 1px 6px rgba(0,0,0,.3); max-width: calc(100% - 80px); }
+  #gps.bad { background: #fee2e2; }
+
+  #panel { flex: 0 0 auto; background: #fff; border-top: 1px solid #d1d5db; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); max-height: 52dvh; overflow-y: auto; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .row label { font-weight: 700; white-space: nowrap; }
+  #freq { flex: 1; min-width: 0; font-size: 20px; padding: 8px 10px; border: 2px solid #9ca3af; border-radius: 10px; }
+  #freq:focus { outline: none; border-color: #2563eb; }
+  .unit { color: #4b5563; font-weight: 700; }
+
+  .status { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .status button { border: 0; border-radius: 12px; padding: 16px 0; font-size: 20px; font-weight: 800; color: #fff; }
+  .status button:active { transform: scale(.97); filter: brightness(.9); }
+  .s-good { background: #2e9e4f; }
+  .s-weak { background: #d9a800; }
+  .s-bad  { background: #f08a00; }
+  .s-int  { background: #d93025; }
+
+  .tools { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tools button { flex: 1; border: 1px solid #9ca3af; background: #f9fafb; border-radius: 10px; padding: 10px 4px; font-size: 14px; font-weight: 700; }
+  .tools button.danger { color: #b91c1c; border-color: #fca5a5; }
+
+  #count { font-size: 13px; color: #4b5563; margin-bottom: 4px; }
+  #list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  #list li { padding: 5px 0; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; align-items: baseline; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; align-self: center; }
+  #list small { color: #6b7280; }
+
+  #toast { position: fixed; left: 50%; bottom: 40%; transform: translateX(-50%); background: rgba(17,24,39,.92); color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 15px; z-index: 3000; opacity: 0; pointer-events: none; transition: opacity .2s; text-align: center; max-width: 90%; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="map">
+  <div id="gps">위치 확인 중...</div>
+  <div class="map-btns">
+    <button id="btnLocate" title="내 위치로 이동">◎</button>
+    <button id="btnFollow" title="내 위치 따라가기">⌖</button>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="row">
+    <label for="freq">주파수</label>
+    <input id="freq" type="text" inputmode="decimal" placeholder="예: 91.9" autocomplete="off">
+    <span class="unit">MHz</span>
+  </div>
+
+  <div class="status">
+    <button class="s-good" data-s="양청">양청</button>
+    <button class="s-weak" data-s="약잡음">약잡음</button>
+    <button class="s-bad" data-s="난청">난청</button>
+    <button class="s-int" data-s="혼신">혼신</button>
+  </div>
+
+  <div class="tools">
+    <button id="btnExport">CSV 저장</button>
+    <button id="btnShare" style="display:none">공유</button>
+    <button id="btnUndo">마지막 취소</button>
+    <button id="btnClear" class="danger">전체 삭제</button>
+  </div>
+
+  <div id="count"></div>
+  <ul id="list"></ul>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  var COLORS = { "양청": "#2e9e4f", "약잡음": "#d9a800", "난청": "#f08a00", "혼신": "#d93025" };
+  var REC_KEY = "rx_records_v1";
+  var FREQ_KEY = "rx_freq_v1";
+
+  /* ---------- 저장소 ---------- */
+  function loadRecords() {
+    try { return JSON.parse(localStorage.getItem(REC_KEY)) || []; } catch (e) { return []; }
+  }
+  function saveRecords() {
+    try { localStorage.setItem(REC_KEY, JSON.stringify(records)); }
+    catch (e) { toast("저장 공간 오류: CSV로 먼저 내보내세요"); }
+  }
+  var records = loadRecords();
+
+  /* ---------- 유틸 ---------- */
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmtTime(d) {
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+           pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  function fileStamp(d) {
+    return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" +
+           pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+  }
+  function esc(v) {
+    v = String(v);
+    return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  var toastTimer;
+  function toast(msg) {
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 1800);
+  }
+
+  /* ---------- 지도 ---------- */
+  var map = L.map("map", { zoomControl: false }).setView([36.5, 127.8], 7);
+  L.control.zoom({ position: "bottomleft" }).addTo(map);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(map);
+
+  var markerLayer = L.layerGroup().addTo(map);
+  var meDot = null, meCircle = null;
+  var lastFix = null;
+  var follow = true;
+  var firstFix = true;
+
+  var btnFollow = document.getElementById("btnFollow");
+  function setFollow(on) {
+    follow = on;
+    btnFollow.classList.toggle("on", on);
+  }
+  setFollow(true);
+  map.on("dragstart", function () { setFollow(false); });
+  btnFollow.addEventListener("click", function () {
+    setFollow(!follow);
+    if (follow && lastFix) map.panTo([lastFix.lat, lastFix.lon]);
+    toast(follow ? "내 위치 따라가기 켬" : "내 위치 따라가기 끔");
+  });
+  document.getElementById("btnLocate").addEventListener("click", function () {
+    if (!lastFix) { toast("아직 위치를 받지 못했습니다"); return; }
+    map.setView([lastFix.lat, lastFix.lon], Math.max(map.getZoom(), 16));
+  });
+
+  function addMarker(r) {
+    var m = L.circleMarker([r.lat, r.lon], {
+      radius: 9, color: "#ffffff", weight: 2, fillColor: COLORS[r.status], fillOpacity: 0.95
+    });
+    m.bindPopup("<b>" + r.status + "</b><br>" + r.freq + " MHz<br>" + r.time + "<br>정확도 ±" + r.acc + " m");
+    m.addTo(markerLayer);
+  }
+  function redrawMarkers() {
+    markerLayer.clearLayers();
+    records.forEach(addMarker);
+  }
+
+  /* ---------- GPS ---------- */
+  var gpsEl = document.getElementById("gps");
+  function onPos(p) {
+    var lat = p.coords.latitude, lon = p.coords.longitude, acc = Math.round(p.coords.accuracy);
+    lastFix = { lat: lat, lon: lon, acc: acc, t: Date.now() };
+    gpsEl.classList.remove("bad");
+    gpsEl.textContent = "위치 ±" + acc + " m";
+
+    if (!meDot) {
+      meCircle = L.circle([lat, lon], { radius: p.coords.accuracy, color: "#2563eb", weight: 1, fillColor: "#2563eb", fillOpacity: 0.12 }).addTo(map);
+      meDot = L.circleMarker([lat, lon], { radius: 8, color: "#ffffff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(map);
+    } else {
+      meCircle.setLatLng([lat, lon]).setRadius(p.coords.accuracy);
+      meDot.setLatLng([lat, lon]);
+    }
+    if (firstFix) {
+      map.setView([lat, lon], 16);
+      firstFix = false;
+    } else if (follow) {
+      map.panTo([lat, lon], { animate: true });
+    }
+  }
+  function onPosErr(err) {
+    gpsEl.classList.add("bad");
+    var msg = "위치를 받을 수 없습니다";
+    if (err.code === 1) msg = "위치 권한이 거부되었습니다. 브라우저 설정에서 허용하세요";
+    else if (err.code === 2) msg = "위치 신호를 찾는 중입니다";
+    else if (err.code === 3) msg = "위치 응답 시간 초과, 다시 시도 중";
+    gpsEl.textContent = msg;
+  }
+  if ("geolocation" in navigator) {
+    navigator.geolocation.watchPosition(onPos, onPosErr, {
+      enableHighAccuracy: true, maximumAge: 2000, timeout: 20000
+    });
+  } else {
+    gpsEl.classList.add("bad");
+    gpsEl.textContent = "이 기기는 위치 기능을 지원하지 않습니다";
+  }
+  if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+    gpsEl.classList.add("bad");
+    gpsEl.textContent = "https 주소로 접속해야 위치를 쓸 수 있습니다";
+  }
+
+  /* ---------- 주파수 ---------- */
+  var freqEl = document.getElementById("freq");
+  try { freqEl.value = localStorage.getItem(FREQ_KEY) || ""; } catch (e) {}
+  freqEl.addEventListener("input", function () {
+    try { localStorage.setItem(FREQ_KEY, freqEl.value.trim()); } catch (e) {}
+  });
+
+  /* ---------- 기록 ---------- */
+  function record(status) {
+    var freq = freqEl.value.trim();
+    if (!freq) { toast("주파수를 먼저 입력하세요"); freqEl.focus(); return; }
+    if (!lastFix) { toast("위치를 아직 받지 못했습니다"); return; }
+    var r = {
+      time: fmtTime(new Date()),
+      freq: freq,
+      lat: +lastFix.lat.toFixed(6),
+      lon: +lastFix.lon.toFixed(6),
+      acc: lastFix.acc,
+      status: status
+    };
+    records.push(r);
+    saveRecords();
+    addMarker(r);
+    render();
+    if (navigator.vibrate) navigator.vibrate(40);
+    toast(status + " 기록 (" + records.length + "건)");
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".status button"), function (b) {
+    b.addEventListener("click", function () { record(b.getAttribute("data-s")); });
+  });
+
+  function render() {
+    document.getElementById("count").textContent = "기록 " + records.length + "건 (최근 5건 표시)";
+    var ul = document.getElementById("list");
+    ul.innerHTML = "";
+    records.slice(-5).reverse().forEach(function (r) {
+      var li = document.createElement("li");
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = COLORS[r.status];
+      var b = document.createElement("b");
+      b.textContent = r.status;
+      var txt = document.createElement("span");
+      txt.textContent = r.freq + " MHz";
+      var sm = document.createElement("small");
+      sm.textContent = r.time.slice(5) + " ±" + r.acc + "m";
+      li.appendChild(dot); li.appendChild(b); li.appendChild(txt); li.appendChild(sm);
+      ul.appendChild(li);
+    });
+  }
+
+  document.getElementById("btnUndo").addEventListener("click", function () {
+    if (!records.length) { toast("취소할 기록이 없습니다"); return; }
+    var r = records.pop();
+    saveRecords();
+    redrawMarkers();
+    render();
+    toast("마지막 기록(" + r.status + ") 취소");
+  });
+  document.getElementById("btnClear").addEventListener("click", function () {
+    if (!records.length) { toast("삭제할 기록이 없습니다"); return; }
+    if (confirm("기록 " + records.length + "건을 모두 삭제할까요?\n(먼저 CSV로 저장했는지 확인하세요)")) {
+      records = [];
+      saveRecords();
+      redrawMarkers();
+      render();
+      toast("전체 삭제됨");
+    }
+  });
+
+  /* ---------- CSV ---------- */
+  function buildCsv() {
+    var lines = ["일시,주파수(MHz),위도,경도,정확도(m),수신상태"];
+    records.forEach(function (r) {
+      lines.push([esc(r.time), esc(r.freq), r.lat, r.lon, r.acc, esc(r.status)].join(","));
+    });
+    return "\uFEFF" + lines.join("\r\n") + "\r\n";
+  }
+  function csvName() { return "수신상태_" + fileStamp(new Date()) + ".csv"; }
+
+  document.getElementById("btnExport").addEventListener("click", function () {
+    if (!records.length) { toast("저장할 기록이 없습니다"); return; }
+    var blob = new Blob([buildCsv()], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = csvName();
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    toast("CSV 저장 (" + records.length + "건)");
+  });
+
+  var btnShare = document.getElementById("btnShare");
+  try {
+    var testFile = new File(["x"], "t.csv", { type: "text/csv" });
+    if (navigator.canShare && navigator.canShare({ files: [testFile] })) btnShare.style.display = "";
+  } catch (e) {}
+  btnShare.addEventListener("click", function () {
+    if (!records.length) { toast("공유할 기록이 없습니다"); return; }
+    var file = new File([buildCsv()], csvName(), { type: "text/csv" });
+    navigator.share({ files: [file], title: "수신상태 기록" }).catch(function () {});
+  });
+
+  render();
+  redrawMarkers();
+  if (records.length) {
+    var last = records[records.length - 1];
+    map.setView([last.lat, last.lon], 14);
+  }
+})();
+</script>
+</body>
+</html>
