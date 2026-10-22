@@ -55,6 +55,7 @@
   <div class="map-btns">
     <button id="btnLocate" title="내 위치로 이동">◎</button>
     <button id="btnFollow" title="내 위치 따라가기">⌖</button>
+    <button id="btnAwake" title="화면 항상 켜짐">☀</button>
   </div>
 </div>
 
@@ -313,6 +314,53 @@
     var file = new File([buildCsv()], csvName(), { type: "text/csv" });
     navigator.share({ files: [file], title: "수신상태 기록" }).catch(function () {});
   });
+
+  /* ---------- 화면 항상 켜짐 (Wake Lock) ---------- */
+  var AWAKE_KEY = "rx_awake_v1";
+  var wakeLock = null;
+  var wantAwake = true;
+  try { wantAwake = localStorage.getItem(AWAKE_KEY) !== "0"; } catch (e) {}
+  var btnAwake = document.getElementById("btnAwake");
+
+  function updateAwakeBtn() {
+    btnAwake.classList.toggle("on", !!wakeLock);
+  }
+  function requestWake(showMsg) {
+    if (!wantAwake) return;
+    if (!("wakeLock" in navigator)) {
+      if (showMsg) toast("이 브라우저는 화면 켜짐 유지를 지원하지 않습니다");
+      return;
+    }
+    if (wakeLock || document.visibilityState !== "visible") return;
+    navigator.wakeLock.request("screen").then(function (lock) {
+      wakeLock = lock;
+      updateAwakeBtn();
+      lock.addEventListener("release", function () {
+        wakeLock = null;
+        updateAwakeBtn();
+      });
+      if (showMsg) toast("화면 항상 켜짐: 켬");
+    }).catch(function () {
+      if (showMsg) toast("화면 켜짐 유지 실패 (절전모드 확인)");
+    });
+  }
+  function releaseWake() {
+    if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; }
+    updateAwakeBtn();
+  }
+  btnAwake.addEventListener("click", function () {
+    wantAwake = !wantAwake;
+    try { localStorage.setItem(AWAKE_KEY, wantAwake ? "1" : "0"); } catch (e) {}
+    if (wantAwake) requestWake(true);
+    else { releaseWake(); toast("화면 항상 켜짐: 끔"); }
+  });
+  // 다른 앱/화면 갔다가 돌아오면 자동 해제되므로 다시 요청
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") requestWake(false);
+  });
+  // 시작 시 요청, 일부 브라우저는 첫 터치가 필요하므로 한 번 더 시도
+  requestWake(false);
+  document.addEventListener("pointerdown", function () { requestWake(false); }, { once: true });
 
   render();
   redrawMarkers();
