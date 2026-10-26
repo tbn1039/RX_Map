@@ -29,6 +29,11 @@
   .status { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
   .status button { border: 0; border-radius: 12px; padding: 16px 0; font-size: 20px; font-weight: 800; color: #fff; }
   .status button:active { transform: scale(.97); filter: brightness(.9); }
+  .status button small { display: block; font-size: 12px; font-weight: 600; opacity: .9; margin-top: 2px; }
+  .status.running button { opacity: .45; }
+  .status.running button.active { opacity: 1; outline: 4px solid #111827; outline-offset: -4px; box-shadow: 0 0 0 3px #fff inset; }
+  #runinfo { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #374151; }
+  #runinfo.on { color: #166534; }
   .s-good { background: #2e9e4f; }
   .s-weak { background: #d9a800; }
   .s-bad  { background: #f08a00; }
@@ -66,14 +71,16 @@
     <span class="unit">MHz</span>
   </div>
 
-  <div class="status">
-    <button class="s-good" data-s="양청">양청</button>
-    <button class="s-weak" data-s="약잡음">약잡음</button>
-    <button class="s-bad" data-s="난청">난청</button>
-    <button class="s-int" data-s="혼신">혼신</button>
+  <div class="status" id="statusBox">
+    <button class="s-good" data-s="양청">양청<small>10초 간격</small></button>
+    <button class="s-weak" data-s="약잡음">약잡음<small>7초 간격</small></button>
+    <button class="s-bad" data-s="난청">난청<small>5초 간격</small></button>
+    <button class="s-int" data-s="혼신">혼신<small>3초 간격</small></button>
   </div>
+  <div id="runinfo">기록 정지 상태 - 버튼을 누르면 시작됩니다</div>
 
   <div class="tools">
+    <button id="btnStop">기록 정지</button>
     <button id="btnExport">CSV 저장</button>
     <button id="btnShare" style="display:none">공유</button>
     <button id="btnUndo">마지막 취소</button>
@@ -127,7 +134,7 @@
   }
 
   /* ---------- 지도 ---------- */
-  var map = L.map("map", { zoomControl: false }).setView([36.5, 127.8], 7);
+  var map = L.map("map", { zoomControl: false, preferCanvas: true }).setView([36.5, 127.8], 7);
   L.control.zoom({ position: "bottomleft" }).addTo(map);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -159,7 +166,7 @@
 
   function addMarker(r) {
     var m = L.circleMarker([r.lat, r.lon], {
-      radius: 9, color: "#ffffff", weight: 2, fillColor: COLORS[r.status], fillOpacity: 0.95
+      radius: 4, color: COLORS[r.status], weight: 1, fillColor: COLORS[r.status], fillOpacity: 0.95
     });
     m.bindPopup("<b>" + r.status + "</b><br>" + r.freq + " MHz<br>" + r.time + "<br>정확도 ±" + r.acc + " m");
     m.addTo(markerLayer);
@@ -220,10 +227,46 @@
   });
 
   /* ---------- 기록 ---------- */
-  function record(status) {
+  var INTERVALS = { "양청": 10, "약잡음": 7, "난청": 5, "혼신": 3 };
+  var activeStatus = null;
+  var timer = null;
+  var statusBox = document.getElementById("statusBox");
+  var runInfo = document.getElementById("runinfo");
+
+  function updateRunUI() {
+    statusBox.classList.toggle("running", !!activeStatus);
+    Array.prototype.forEach.call(statusBox.querySelectorAll("button"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-s") === activeStatus);
+    });
+    if (activeStatus) {
+      runInfo.textContent = "기록 중: " + activeStatus + " (" + INTERVALS[activeStatus] + "초 간격)";
+      runInfo.classList.add("on");
+    } else {
+      runInfo.textContent = "기록 정지 상태 - 버튼을 누르면 시작됩니다";
+      runInfo.classList.remove("on");
+    }
+  }
+  function stopRecording(showMsg) {
+    if (timer) { clearInterval(timer); timer = null; }
+    activeStatus = null;
+    updateRunUI();
+    if (showMsg) toast("기록 정지");
+  }
+  function startRecording(status) {
     var freq = freqEl.value.trim();
     if (!freq) { toast("주파수를 먼저 입력하세요"); freqEl.focus(); return; }
-    if (!lastFix) { toast("위치를 아직 받지 못했습니다"); return; }
+    if (activeStatus === status) return; // 같은 버튼 재클릭은 무시 (유지)
+    if (timer) clearInterval(timer);
+    activeStatus = status;
+    updateRunUI();
+    record(status, true);
+    timer = setInterval(function () { record(activeStatus, false); }, INTERVALS[status] * 1000);
+  }
+
+  function record(status, manual) {
+    var freq = freqEl.value.trim();
+    if (!freq) { if (manual) toast("주파수를 먼저 입력하세요"); return; }
+    if (!lastFix) { if (manual) toast("위치를 아직 받지 못했습니다"); return; }
     var r = {
       time: fmtTime(new Date()),
       freq: freq,
@@ -236,11 +279,15 @@
     saveRecords();
     addMarker(r);
     render();
-    if (navigator.vibrate) navigator.vibrate(40);
-    toast(status + " 기록 (" + records.length + "건)");
+    if (navigator.vibrate) navigator.vibrate(manual ? 40 : 15);
+    if (manual) toast(status + " 기록 시작 (" + INTERVALS[status] + "초 간격)");
   }
   Array.prototype.forEach.call(document.querySelectorAll(".status button"), function (b) {
-    b.addEventListener("click", function () { record(b.getAttribute("data-s")); });
+    b.addEventListener("click", function () { startRecording(b.getAttribute("data-s")); });
+  });
+  document.getElementById("btnStop").addEventListener("click", function () {
+    if (!activeStatus) { toast("이미 정지 상태입니다"); return; }
+    stopRecording(true);
   });
 
   function render() {
