@@ -8,12 +8,12 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; font-family: -apple-system, "Malgun Gothic", "Noto Sans KR", sans-serif; background: #f3f4f6; color: #111827; }
+  html, body { margin: 0; height: 100%; overscroll-behavior: none; font-family: -apple-system, "Malgun Gothic", "Noto Sans KR", sans-serif; background: #f3f4f6; color: #111827; }
   body { display: flex; flex-direction: column; height: 100dvh; }
 
   #map { flex: 1 1 auto; min-height: 120px; position: relative; }
-  .map-btns { position: absolute; right: 10px; top: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
-  .map-btns button { width: 46px; height: 46px; border: 0; border-radius: 10px; background: #fff; font-size: 20px; box-shadow: 0 1px 6px rgba(0,0,0,.35); }
+  .map-btns { position: absolute; right: 10px; top: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 6px; }
+  .map-btns button { width: 42px; height: 42px; border: 0; border-radius: 10px; background: #fff; font-size: 18px; box-shadow: 0 1px 6px rgba(0,0,0,.35); }
   .map-btns button.on { background: #2563eb; color: #fff; }
 
   #gps { position: absolute; left: 10px; top: 10px; z-index: 1000; background: rgba(255,255,255,.92); border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 1px 6px rgba(0,0,0,.3); max-width: calc(100% - 80px); }
@@ -74,6 +74,7 @@
     <button id="btnAwake" title="화면 항상 켜짐">☀</button>
     <button id="btnRemote" title="터치 리모컨 모드">🎮</button>
     <button id="btnLearn" title="리모컨 가운데 버튼 등록">🎯</button>
+    <button id="btnVoice" title="음성 안내">🔊</button>
   </div>
 </div>
 
@@ -153,6 +154,34 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.classList.remove("show"); }, 1800);
   }
+
+  /* ---------- 음성 안내 (TTS) ---------- */
+  var VOICE_KEY = "rx_voice_v1";
+  var voiceOn = true;
+  try { voiceOn = localStorage.getItem(VOICE_KEY) !== "0"; } catch (e) {}
+  var btnVoice = document.getElementById("btnVoice");
+  function updateVoiceBtn() {
+    btnVoice.textContent = voiceOn ? "🔊" : "🔇";
+    btnVoice.classList.toggle("on", voiceOn);
+  }
+  function say(text) {
+    if (!voiceOn || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = "ko-KR";
+      u.rate = 1.05;
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  btnVoice.addEventListener("click", function () {
+    voiceOn = !voiceOn;
+    try { localStorage.setItem(VOICE_KEY, voiceOn ? "1" : "0"); } catch (e) {}
+    updateVoiceBtn();
+    toast(voiceOn ? "음성 안내 켬" : "음성 안내 끔");
+    if (voiceOn) say("음성 안내를 켭니다");
+  });
+  updateVoiceBtn();
 
   /* ---------- 지도 ---------- */
   // keyboard:false -> 리모컨 방향키가 지도 이동에 쓰이지 않도록 함
@@ -301,12 +330,13 @@
     updateRunUI();
     var f = chs[i].input.value.trim();
     toast("주파수" + (i + 1) + " 선택" + (f ? " (" + f + " MHz)" : " - 주파수를 입력하세요"));
+    say("주파수 " + (i + 1) + "번" + (f ? ", " + f + " 메가헤르츠" : ", 입력 필요"));
   }
   function stopChannel(c, showMsg) {
     if (c.timer) { clearInterval(c.timer); c.timer = null; }
     c.status = null;
     updateRunUI();
-    if (showMsg) toast("주파수" + (c.idx + 1) + " 기록 정지");
+    if (showMsg) { toast("주파수" + (c.idx + 1) + " 기록 정지"); say((c.idx + 1) + "번 기록 정지"); }
   }
   function stopAll() {
     chs.forEach(function (c) {
@@ -321,21 +351,29 @@
     var freq = c.input.value.trim();
     if (!freq) {
       toast("주파수" + n + "을 먼저 입력하세요");
+      say("주파수 " + n + "번을 입력하세요");
       if (!fromKey) c.input.focus();
       return;
     }
-    if (c.status === status) { toast("주파수" + n + " 이미 " + status + " 기록 중"); return; } // 같은 상태 재입력은 유지
+    if (c.status === status) {  // 같은 상태 재입력은 유지
+      toast("주파수" + n + " 이미 " + status + " 기록 중");
+      say(n + "번 이미 " + status);
+      return;
+    }
     if (c.timer) clearInterval(c.timer);
     c.status = status;
     updateRunUI();
-    record(c, status, true);
+    if (record(c, status, true)) say(n + "번 " + freq + ", " + status);
     c.timer = setInterval(function () { record(c, c.status, false); }, INTERVALS[status] * 1000);
   }
 
   function record(c, status, manual) {
     var freq = c.input.value.trim();
-    if (!freq) { if (manual) toast("주파수" + (c.idx + 1) + "을 먼저 입력하세요"); return; }
-    if (!lastFix) { if (manual) toast("위치를 아직 받지 못했습니다"); return; }
+    if (!freq) { if (manual) toast("주파수" + (c.idx + 1) + "을 먼저 입력하세요"); return false; }
+    if (!lastFix) {
+      if (manual) { toast("위치를 아직 받지 못했습니다"); say("위치를 아직 받지 못했습니다"); }
+      return false;
+    }
     var r = {
       time: fmtTime(new Date()),
       freq: freq,
@@ -351,6 +389,7 @@
     render();
     if (navigator.vibrate) navigator.vibrate(manual ? 40 : 15);
     if (manual) toast("주파수" + (c.idx + 1) + " " + status + " 기록 시작 (" + INTERVALS[status] + "초 간격)");
+    return true;
   }
   Array.prototype.forEach.call(statusBtns, function (b) {
     b.addEventListener("click", function () { startRecording(b.getAttribute("data-s"), false); });
@@ -360,6 +399,7 @@
     if (!any) { toast("이미 정지 상태입니다"); return; }
     stopAll();
     toast("기록 정지 (전체)");
+    say("전체 기록 정지");
   });
 
   /* ---------- 블루투스 리모컨 (방향키) ---------- */
@@ -431,7 +471,7 @@
     var onInput = !!(e.target && (e.target.tagName === "INPUT" || (e.target.closest && e.target.closest("#btnLearn"))));
     tStart = (e.touches.length > 1 || onInput) ? null : { x: t.clientX, y: t.clientY };
   }, { capture: true, passive: true });
-  document.addEventListener("touchend", function (e) {
+  var onTouchEnd = function (e) {
     if (!tStart) return;
     var t = e.changedTouches[0];
     var dx = t.clientX - tStart.x, dy = t.clientY - tStart.y;
@@ -467,7 +507,10 @@
         if (st) startRecording(st, true);
       }
     }
-  }, { capture: true, passive: false });
+  };
+  // touchcancel도 같이 처리: 브라우저가 스와이프를 가로채도(예: 당겨서 새로고침) 방향을 인식
+  document.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+  document.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
 
   /* ---------- 터치 리모컨 모드 ---------- */
   // 이 리모컨은 버튼을 누르면 화면 스와이프를 보냄 (실측):
