@@ -72,6 +72,8 @@
     <button id="btnLocate" title="내 위치로 이동">◎</button>
     <button id="btnFollow" title="내 위치 따라가기">⌖</button>
     <button id="btnAwake" title="화면 항상 켜짐">☀</button>
+    <button id="btnRemote" title="터치 리모컨 모드">🎮</button>
+    <button id="btnLearn" title="리모컨 가운데 버튼 등록">🎯</button>
   </div>
 </div>
 
@@ -95,7 +97,7 @@
     <button class="chtoggle" id="chToggle" data-ch="0" title="주파수 1/2 전환"><small id="chLabel">주파수 1</small><span id="chFreq">--</span><small>MHz</small></button>
   </div>
   <div id="runinfo"><div id="run0"></div><div id="run1"></div></div>
-  <div id="keyinfo">리모컨: ▲양청 ▼난청 ◀약잡음 ▶혼신 / OK(Enter)=주파수 전환 / Esc=선택 정지<span id="lastkey"></span></div>
+  <div id="keyinfo">리모컨: ▲양청 ▼난청 ◀약잡음 ▶혼신 / 가운데 원·OK(Enter)=주파수 전환 / Esc=선택 정지<span id="lastkey"></span></div>
 
   <div class="tools">
     <button id="btnStop">전체 정지</button>
@@ -370,7 +372,20 @@
     var key = e.key;
     var inInput = !!(e.target && e.target.tagName === "INPUT");
     var status = KEYMAP[key];
-    var isToggle = (key === "Enter" || key === " " || key === "PageDown" || key === "PageUp");
+
+    // 가운데 버튼 등록 중: 키 신호이면 그 키를 저장
+    if (learning && !status && ["Shift", "Control", "Alt", "Meta"].indexOf(key) < 0) {
+      e.preventDefault();
+      learnedKey = key;
+      tapPoint = null;
+      try { localStorage.setItem(LKEY_KEY, key); localStorage.removeItem(TAP_KEY); } catch (er) {}
+      endLearning();
+      toast("가운데 버튼 등록: 키 " + key);
+      return;
+    }
+
+    var isToggle = (key === "Enter" || key === " " || key === "PageDown" || key === "PageUp" ||
+                    MEDIA_KEYS.indexOf(key) >= 0 || (learnedKey && key === learnedKey));
     var isNum = (key === "1" || key === "2");
     var isStop = (key === "Escape" || key === "Backspace");
 
@@ -413,18 +428,93 @@
   }, true);
   document.addEventListener("touchstart", function (e) {
     var t = e.changedTouches[0];
-    tStart = { x: t.clientX, y: t.clientY };
+    var onInput = !!(e.target && (e.target.tagName === "INPUT" || (e.target.closest && e.target.closest("#btnLearn"))));
+    tStart = (e.touches.length > 1 || onInput) ? null : { x: t.clientX, y: t.clientY };
   }, { capture: true, passive: true });
   document.addEventListener("touchend", function (e) {
     if (!tStart) return;
     var t = e.changedTouches[0];
     var dx = t.clientX - tStart.x, dy = t.clientY - tStart.y;
+    var sx = tStart.x, sy = tStart.y;
     tStart = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) <= 12) {
+      // 탭: 가운데 버튼 등록 중이면 위치 저장, 등록된 위치와 같으면 주파수 전환
+      if (learning) {
+        e.preventDefault();
+        swallowClickUntil = Date.now() + 700;
+        tapPoint = { fx: sx / window.innerWidth, fy: sy / window.innerHeight };
+        learnedKey = null;
+        try { localStorage.setItem(TAP_KEY, JSON.stringify(tapPoint)); localStorage.removeItem(LKEY_KEY); } catch (er) {}
+        endLearning();
+        toast("가운데 버튼 등록: 화면 터치 (" + Math.round(sx) + "," + Math.round(sy) + ")");
+        return;
+      }
+      if (remoteOn && tapPoint &&
+          Math.abs(sx - tapPoint.fx * window.innerWidth) <= 14 &&
+          Math.abs(sy - tapPoint.fy * window.innerHeight) <= 14) {
+        e.preventDefault();
+        swallowClickUntil = Date.now() + 700;
+        selectChannel(sel === 0 ? 1 : 0);
+      }
+      return;
+    }
     if (Math.abs(dx) > 30 || Math.abs(dy) > 30) {
       var dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "→" : "←") : (dy > 0 ? "↓" : "↑");
       lastKeyEl.textContent = " [스와이프 " + dir + " (" + Math.round(dx) + "," + Math.round(dy) + ")]";
+      var major = Math.max(Math.abs(dx), Math.abs(dy)), minor = Math.min(Math.abs(dx), Math.abs(dy));
+      if (remoteOn && major > minor * 1.5) {
+        var st = SWIPE_MAP[dir];
+        if (st) startRecording(st, true);
+      }
     }
-  }, { capture: true, passive: true });
+  }, { capture: true, passive: false });
+
+  /* ---------- 터치 리모컨 모드 ---------- */
+  // 이 리모컨은 버튼을 누르면 화면 스와이프를 보냄 (실측):
+  //   상버튼=↓  하버튼=↑  좌버튼=→  우버튼=←
+  var SWIPE_MAP = { "↓": "양청", "↑": "난청", "→": "약잡음", "←": "혼신" };
+  var REMOTE_KEY = "rx_remote_v1";
+  var remoteOn = true;
+  try { remoteOn = localStorage.getItem(REMOTE_KEY) !== "0"; } catch (e) {}
+  var btnRemote = document.getElementById("btnRemote");
+  function applyRemote() {
+    btnRemote.classList.toggle("on", remoteOn);
+    if (remoteOn) map.dragging.disable(); else map.dragging.enable();
+  }
+  btnRemote.addEventListener("click", function () {
+    remoteOn = !remoteOn;
+    try { localStorage.setItem(REMOTE_KEY, remoteOn ? "1" : "0"); } catch (e) {}
+    applyRemote();
+    toast(remoteOn ? "터치 리모컨 모드 켬 (지도 드래그 잠금)" : "터치 리모컨 모드 끔 (지도 드래그 가능)");
+  });
+  applyRemote();
+
+  /* ---------- 리모컨 가운데(재생/일시정지) 버튼 = 주파수 전환 ---------- */
+  // 🎯 버튼을 누른 뒤 리모컨 가운데 버튼을 한 번 누르면 그 신호(키 또는 화면 터치 위치)를 등록
+  var MEDIA_KEYS = ["MediaPlayPause", "MediaPlay", "MediaPause", "Play", "Pause"];
+  var TAP_KEY = "rx_tap_v1", LKEY_KEY = "rx_lkey_v1";
+  var tapPoint = null, learnedKey = null;
+  try {
+    tapPoint = JSON.parse(localStorage.getItem(TAP_KEY));
+    learnedKey = localStorage.getItem(LKEY_KEY);
+  } catch (e) {}
+  var learning = false, learnTimer = null, swallowClickUntil = 0;
+  var btnLearn = document.getElementById("btnLearn");
+  function endLearning() {
+    learning = false;
+    clearTimeout(learnTimer);
+    btnLearn.classList.remove("on");
+  }
+  btnLearn.addEventListener("click", function () {
+    if (learning) { endLearning(); toast("등록 취소"); return; }
+    learning = true;
+    btnLearn.classList.add("on");
+    toast("리모컨 가운데(재생/일시정지) 버튼을 한 번 누르세요");
+    learnTimer = setTimeout(function () { if (learning) { endLearning(); toast("등록 시간 초과"); } }, 20000);
+  });
+  document.addEventListener("click", function (e) {
+    if (Date.now() < swallowClickUntil) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
 
   function render() {
     document.getElementById("count").textContent = "기록 " + records.length + "건 (최근 5건 표시)";
