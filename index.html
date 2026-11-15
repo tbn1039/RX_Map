@@ -19,21 +19,32 @@
   #gps { position: absolute; left: 10px; top: 10px; z-index: 1000; background: rgba(255,255,255,.92); border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 1px 6px rgba(0,0,0,.3); max-width: calc(100% - 80px); }
   #gps.bad { background: #fee2e2; }
 
-  #panel { flex: 0 0 auto; background: #fff; border-top: 1px solid #d1d5db; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); max-height: 52dvh; overflow-y: auto; }
+  #panel { flex: 0 0 auto; background: #fff; border-top: 1px solid #d1d5db; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); max-height: 56dvh; overflow-y: auto; }
   .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
   .row label { font-weight: 700; white-space: nowrap; }
-  #freq { flex: 1; min-width: 0; font-size: 20px; padding: 8px 10px; border: 2px solid #9ca3af; border-radius: 10px; }
-  #freq:focus { outline: none; border-color: #2563eb; }
+  .freqline { display: flex; gap: 6px; margin-bottom: 4px; }
+  .row.frow { flex: 1 1 0; min-width: 0; gap: 4px; margin-bottom: 0; border: 2px solid transparent; border-radius: 12px; padding: 3px 4px; }
+  .row.frow.sel { border-color: #2563eb; background: #eff6ff; }
+  .chbadge { width: 28px; height: 28px; line-height: 28px; text-align: center; border-radius: 50%; background: #6b7280; color: #fff; font-weight: 800; flex: 0 0 28px; }
+  .frow.sel .chbadge { background: #2563eb; }
+  .freqin { flex: 1; min-width: 0; width: 100%; font-size: 19px; padding: 8px 6px; border: 2px solid #9ca3af; border-radius: 10px; }
+  .freqin:focus { outline: none; border-color: #2563eb; }
   .unit { color: #4b5563; font-weight: 700; }
 
-  .status { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-  .status button { border: 0; border-radius: 12px; padding: 16px 0; font-size: 20px; font-weight: 800; color: #fff; }
+  .status { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; position: relative; }
+  .status button { border: 0; border-radius: 12px; padding: 14px 0; font-size: 20px; font-weight: 800; color: #fff; }
   .status button:active { transform: scale(.97); filter: brightness(.9); }
   .status button small { display: block; font-size: 12px; font-weight: 600; opacity: .9; margin-top: 2px; }
   .status.running button { opacity: .45; }
   .status.running button.active { opacity: 1; outline: 4px solid #111827; outline-offset: -4px; box-shadow: 0 0 0 3px #fff inset; }
-  #runinfo { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #374151; }
-  #runinfo.on { color: #166534; }
+  .status button.chtoggle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 132px; height: 132px; padding: 0; border-radius: 50%; border: 5px solid #fff; background: #2563eb; color: #fff; font-weight: 800; line-height: 1.1; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 1 !important; outline: none !important; box-shadow: 0 2px 8px rgba(0,0,0,.45) !important; z-index: 5; }
+  .status button.chtoggle[data-ch="1"] { background: #7c3aed; }
+  .status button.chtoggle small { font-size: 13px; margin: 0; }
+  .status button.chtoggle span { display: block; font-size: 32px; max-width: 110px; white-space: nowrap; overflow: hidden; }
+  .status button.chtoggle:active { transform: translate(-50%, -50%) scale(.93); filter: brightness(.9); }
+  #runinfo { font-size: 14px; font-weight: 700; margin-bottom: 4px; color: #374151; }
+  #runinfo div.on { color: #166534; }
+  #keyinfo { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
   .s-good { background: #2e9e4f; }
   .s-weak { background: #d9a800; }
   .s-bad  { background: #f08a00; }
@@ -65,10 +76,15 @@
 </div>
 
 <div id="panel">
-  <div class="row">
-    <label for="freq">주파수</label>
-    <input id="freq" type="text" inputmode="decimal" placeholder="예: 91.9" autocomplete="off">
-    <span class="unit">MHz</span>
+  <div class="freqline">
+    <div class="row frow sel" id="frow0">
+      <span class="chbadge">1</span>
+      <input id="freq0" class="freqin" type="text" inputmode="decimal" placeholder="예: 91.9" autocomplete="off" aria-label="주파수1 (MHz)">
+    </div>
+    <div class="row frow" id="frow1">
+      <span class="chbadge">2</span>
+      <input id="freq1" class="freqin" type="text" inputmode="decimal" placeholder="선택" autocomplete="off" aria-label="주파수2 (MHz)">
+    </div>
   </div>
 
   <div class="status" id="statusBox">
@@ -76,11 +92,13 @@
     <button class="s-weak" data-s="약잡음">약잡음<small>7초 간격</small></button>
     <button class="s-bad" data-s="난청">난청<small>5초 간격</small></button>
     <button class="s-int" data-s="혼신">혼신<small>3초 간격</small></button>
+    <button class="chtoggle" id="chToggle" data-ch="0" title="주파수 1/2 전환"><small id="chLabel">주파수 1</small><span id="chFreq">--</span><small>MHz</small></button>
   </div>
-  <div id="runinfo">기록 정지 상태 - 버튼을 누르면 시작됩니다</div>
+  <div id="runinfo"><div id="run0"></div><div id="run1"></div></div>
+  <div id="keyinfo">리모컨: ▲양청 ▼난청 ◀약잡음 ▶혼신 / OK(Enter)=주파수 전환 / Esc=선택 정지<span id="lastkey"></span></div>
 
   <div class="tools">
-    <button id="btnStop">기록 정지</button>
+    <button id="btnStop">전체 정지</button>
     <button id="btnExport">CSV 저장</button>
     <button id="btnShare" style="display:none">공유</button>
     <button id="btnUndo">마지막 취소</button>
@@ -99,6 +117,7 @@
   var COLORS = { "양청": "#2e9e4f", "약잡음": "#d9a800", "난청": "#f08a00", "혼신": "#d93025" };
   var REC_KEY = "rx_records_v1";
   var FREQ_KEY = "rx_freq_v1";
+  var FREQ2_KEY = "rx_freq2_v1";
 
   /* ---------- 저장소 ---------- */
   function loadRecords() {
@@ -134,7 +153,8 @@
   }
 
   /* ---------- 지도 ---------- */
-  var map = L.map("map", { zoomControl: false, preferCanvas: true }).setView([36.5, 127.8], 7);
+  // keyboard:false -> 리모컨 방향키가 지도 이동에 쓰이지 않도록 함
+  var map = L.map("map", { zoomControl: false, preferCanvas: true, keyboard: false }).setView([36.5, 127.8], 7);
   L.control.zoom({ position: "bottomleft" }).addTo(map);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -164,11 +184,14 @@
     map.setView([lastFix.lat, lastFix.lon], Math.max(map.getZoom(), 16));
   });
 
+  // 주파수1: 채워진 작은 점, 주파수2: 속이 빈 큰 원 (같은 위치에서도 둘 다 보이도록)
   function addMarker(r) {
-    var m = L.circleMarker([r.lat, r.lon], {
-      radius: 4, color: COLORS[r.status], weight: 1, fillColor: COLORS[r.status], fillOpacity: 0.95
-    });
-    m.bindPopup("<b>" + r.status + "</b><br>" + r.freq + " MHz<br>" + r.time + "<br>정확도 ±" + r.acc + " m");
+    var c = COLORS[r.status];
+    var second = r.ch === 1;
+    var m = L.circleMarker([r.lat, r.lon], second
+      ? { radius: 8, color: c, weight: 3, fillColor: c, fillOpacity: 0 }
+      : { radius: 4, color: c, weight: 1, fillColor: c, fillOpacity: 0.95 });
+    m.bindPopup("<b>" + r.status + "</b><br>" + (second ? "주파수2 " : "주파수1 ") + r.freq + " MHz<br>" + r.time + "<br>정확도 ±" + r.acc + " m");
     m.addTo(markerLayer);
   }
   function redrawMarkers() {
@@ -219,53 +242,97 @@
     gpsEl.textContent = "https 주소로 접속해야 위치를 쓸 수 있습니다";
   }
 
-  /* ---------- 주파수 ---------- */
-  var freqEl = document.getElementById("freq");
-  try { freqEl.value = localStorage.getItem(FREQ_KEY) || ""; } catch (e) {}
-  freqEl.addEventListener("input", function () {
-    try { localStorage.setItem(FREQ_KEY, freqEl.value.trim()); } catch (e) {}
+  /* ---------- 주파수 2채널 ---------- */
+  var FREQ_KEYS = [FREQ_KEY, FREQ2_KEY];
+  var rows = [document.getElementById("frow0"), document.getElementById("frow1")];
+  var chs = [];      // 채널별 상태: { idx, input, status, timer }
+  var sel = 0;       // 리모컨/버튼 조작 대상 채널 (0 = 주파수1, 1 = 주파수2)
+  [0, 1].forEach(function (i) {
+    var inp = document.getElementById("freq" + i);
+    try { inp.value = localStorage.getItem(FREQ_KEYS[i]) || ""; } catch (e) {}
+    inp.addEventListener("input", function () {
+      try { localStorage.setItem(FREQ_KEYS[i], inp.value.trim()); } catch (e) {}
+      updateRunUI();
+    });
+    inp.addEventListener("focus", function () {
+      if (sel !== i) { sel = i; updateRunUI(); }
+    });
+    rows[i].querySelector(".chbadge").addEventListener("click", function () { selectChannel(i); });
+    chs.push({ idx: i, input: inp, status: null, timer: null });
   });
 
   /* ---------- 기록 ---------- */
   var INTERVALS = { "양청": 10, "약잡음": 7, "난청": 5, "혼신": 3 };
-  var activeStatus = null;
-  var timer = null;
   var statusBox = document.getElementById("statusBox");
-  var runInfo = document.getElementById("runinfo");
+  var statusBtns = statusBox.querySelectorAll("button[data-s]");
+  var chToggle = document.getElementById("chToggle");
+  chToggle.addEventListener("click", function () { selectChannel(sel === 0 ? 1 : 0); });
 
   function updateRunUI() {
-    statusBox.classList.toggle("running", !!activeStatus);
-    Array.prototype.forEach.call(statusBox.querySelectorAll("button"), function (b) {
-      b.classList.toggle("active", b.getAttribute("data-s") === activeStatus);
+    chs.forEach(function (c, i) {
+      var el = document.getElementById("run" + i);
+      var f = c.input.value.trim();
+      var label = (i === sel ? "▶ " : "") + "주파수" + (i + 1) + (f ? " " + f : "");
+      if (c.status) {
+        el.textContent = label + " : 기록 중 " + c.status + " (" + INTERVALS[c.status] + "초)";
+        el.classList.add("on");
+      } else {
+        el.textContent = label + " : 정지";
+        el.classList.remove("on");
+      }
+      rows[i].classList.toggle("sel", i === sel);
     });
-    if (activeStatus) {
-      runInfo.textContent = "기록 중: " + activeStatus + " (" + INTERVALS[activeStatus] + "초 간격)";
-      runInfo.classList.add("on");
-    } else {
-      runInfo.textContent = "기록 정지 상태 - 버튼을 누르면 시작됩니다";
-      runInfo.classList.remove("on");
+    var cur = chs[sel];
+    chToggle.setAttribute("data-ch", sel);
+    var curFreq = cur.input.value.trim();
+    document.getElementById("chLabel").textContent = "주파수 " + (sel + 1);
+    var chFreqEl = document.getElementById("chFreq");
+    chFreqEl.textContent = curFreq || "--";
+    chFreqEl.style.fontSize = curFreq.length > 6 ? "20px" : (curFreq.length > 4 ? "26px" : "32px");
+    statusBox.classList.toggle("running", !!cur.status);
+    Array.prototype.forEach.call(statusBtns, function (b) {
+      b.classList.toggle("active", b.getAttribute("data-s") === cur.status);
+    });
+  }
+  function selectChannel(i) {
+    sel = i;
+    updateRunUI();
+    var f = chs[i].input.value.trim();
+    toast("주파수" + (i + 1) + " 선택" + (f ? " (" + f + " MHz)" : " - 주파수를 입력하세요"));
+  }
+  function stopChannel(c, showMsg) {
+    if (c.timer) { clearInterval(c.timer); c.timer = null; }
+    c.status = null;
+    updateRunUI();
+    if (showMsg) toast("주파수" + (c.idx + 1) + " 기록 정지");
+  }
+  function stopAll() {
+    chs.forEach(function (c) {
+      if (c.timer) { clearInterval(c.timer); c.timer = null; }
+      c.status = null;
+    });
+    updateRunUI();
+  }
+  function startRecording(status, fromKey) {
+    var c = chs[sel];
+    var n = c.idx + 1;
+    var freq = c.input.value.trim();
+    if (!freq) {
+      toast("주파수" + n + "을 먼저 입력하세요");
+      if (!fromKey) c.input.focus();
+      return;
     }
-  }
-  function stopRecording(showMsg) {
-    if (timer) { clearInterval(timer); timer = null; }
-    activeStatus = null;
+    if (c.status === status) { toast("주파수" + n + " 이미 " + status + " 기록 중"); return; } // 같은 상태 재입력은 유지
+    if (c.timer) clearInterval(c.timer);
+    c.status = status;
     updateRunUI();
-    if (showMsg) toast("기록 정지");
-  }
-  function startRecording(status) {
-    var freq = freqEl.value.trim();
-    if (!freq) { toast("주파수를 먼저 입력하세요"); freqEl.focus(); return; }
-    if (activeStatus === status) return; // 같은 버튼 재클릭은 무시 (유지)
-    if (timer) clearInterval(timer);
-    activeStatus = status;
-    updateRunUI();
-    record(status, true);
-    timer = setInterval(function () { record(activeStatus, false); }, INTERVALS[status] * 1000);
+    record(c, status, true);
+    c.timer = setInterval(function () { record(c, c.status, false); }, INTERVALS[status] * 1000);
   }
 
-  function record(status, manual) {
-    var freq = freqEl.value.trim();
-    if (!freq) { if (manual) toast("주파수를 먼저 입력하세요"); return; }
+  function record(c, status, manual) {
+    var freq = c.input.value.trim();
+    if (!freq) { if (manual) toast("주파수" + (c.idx + 1) + "을 먼저 입력하세요"); return; }
     if (!lastFix) { if (manual) toast("위치를 아직 받지 못했습니다"); return; }
     var r = {
       time: fmtTime(new Date()),
@@ -273,21 +340,67 @@
       lat: +lastFix.lat.toFixed(6),
       lon: +lastFix.lon.toFixed(6),
       acc: lastFix.acc,
-      status: status
+      status: status,
+      ch: c.idx
     };
     records.push(r);
     saveRecords();
     addMarker(r);
     render();
     if (navigator.vibrate) navigator.vibrate(manual ? 40 : 15);
-    if (manual) toast(status + " 기록 시작 (" + INTERVALS[status] + "초 간격)");
+    if (manual) toast("주파수" + (c.idx + 1) + " " + status + " 기록 시작 (" + INTERVALS[status] + "초 간격)");
   }
-  Array.prototype.forEach.call(document.querySelectorAll(".status button"), function (b) {
-    b.addEventListener("click", function () { startRecording(b.getAttribute("data-s")); });
+  Array.prototype.forEach.call(statusBtns, function (b) {
+    b.addEventListener("click", function () { startRecording(b.getAttribute("data-s"), false); });
   });
   document.getElementById("btnStop").addEventListener("click", function () {
-    if (!activeStatus) { toast("이미 정지 상태입니다"); return; }
-    stopRecording(true);
+    var any = chs.some(function (c) { return !!c.status; });
+    if (!any) { toast("이미 정지 상태입니다"); return; }
+    stopAll();
+    toast("기록 정지 (전체)");
+  });
+
+  /* ---------- 블루투스 리모컨 (방향키) ---------- */
+  // 상=양청, 하=난청, 좌=약잡음, 우=혼신 / Enter·Space·PageUp·PageDown = 주파수1↔2 전환
+  // 1, 2 = 주파수 직접 선택 / Esc·Backspace = 선택된 주파수 기록 정지
+  var KEYMAP = { ArrowUp: "양청", ArrowDown: "난청", ArrowLeft: "약잡음", ArrowRight: "혼신" };
+  var lastKeyEl = document.getElementById("lastkey");
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var key = e.key;
+    var inInput = !!(e.target && e.target.tagName === "INPUT");
+    var status = KEYMAP[key];
+    var isToggle = (key === "Enter" || key === " " || key === "PageDown" || key === "PageUp");
+    var isNum = (key === "1" || key === "2");
+    var isStop = (key === "Escape" || key === "Backspace");
+
+    if (!inInput || status) {
+      lastKeyEl.textContent = " [마지막 입력: " + (key === " " ? "Space" : key) + "]";
+    }
+    if (!status && !isToggle && !isNum && !isStop) return;
+
+    // 주파수 입력 중에는 일반 타이핑을 방해하지 않음
+    if (inInput && (key === " " || isNum || isStop)) return;
+    if (inInput && key === "Enter") { e.target.blur(); e.preventDefault(); return; }
+
+    e.preventDefault();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    if (e.repeat) return;
+
+    if (status) {
+      startRecording(status, true);
+    } else if (isToggle) {
+      selectChannel(sel === 0 ? 1 : 0);
+    } else if (isNum) {
+      selectChannel(+key - 1);
+    } else if (isStop) {
+      var c = chs[sel];
+      if (c.status) stopChannel(c, true);
+      else toast("주파수" + (sel + 1) + "은 이미 정지 상태입니다");
+    }
+  });
+  document.addEventListener("keyup", function (e) {
+    if (e.key === " " && !(e.target && e.target.tagName === "INPUT")) e.preventDefault();
   });
 
   function render() {
@@ -302,7 +415,7 @@
       var b = document.createElement("b");
       b.textContent = r.status;
       var txt = document.createElement("span");
-      txt.textContent = r.freq + " MHz";
+      txt.textContent = (r.ch === 1 ? "②" : "①") + " " + r.freq + " MHz";
       var sm = document.createElement("small");
       sm.textContent = r.time.slice(5) + " ±" + r.acc + "m";
       li.appendChild(dot); li.appendChild(b); li.appendChild(txt); li.appendChild(sm);
@@ -409,6 +522,7 @@
   requestWake(false);
   document.addEventListener("pointerdown", function () { requestWake(false); }, { once: true });
 
+  updateRunUI();
   render();
   redrawMarkers();
   if (records.length) {
