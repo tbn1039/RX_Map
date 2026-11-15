@@ -283,10 +283,11 @@
     try { inp.value = localStorage.getItem(FREQ_KEYS[i]) || ""; } catch (e) {}
     inp.addEventListener("input", function () {
       try { localStorage.setItem(FREQ_KEYS[i], inp.value.trim()); } catch (e) {}
+      if (chs[i].status) stopChannel(chs[i], true);  // 기록 중 주파수 값을 고치면 기록 정지
       updateRunUI();
     });
     inp.addEventListener("focus", function () {
-      if (sel !== i) { sel = i; updateRunUI(); }
+      if (sel !== i) { stopAll(); sel = i; updateRunUI(); }
     });
     rows[i].querySelector(".chbadge").addEventListener("click", function () { selectChannel(i); });
     chs.push({ idx: i, input: inp, status: null, timer: null });
@@ -326,11 +327,14 @@
     });
   }
   function selectChannel(i) {
+    // 주파수가 바뀌면 진행 중인 기록은 모두 정지 (상태 버튼을 다시 눌러야 기록 시작)
+    var stopped = (i !== sel) && chs.some(function (c) { return !!c.status; });
+    if (stopped) stopAll();
     sel = i;
     updateRunUI();
     var f = chs[i].input.value.trim();
-    toast("주파수" + (i + 1) + " 선택" + (f ? " (" + f + " MHz)" : " - 주파수를 입력하세요"));
-    say("주파수 " + (i + 1) + "번" + (f ? ", " + f + " 메가헤르츠" : ", 입력 필요"));
+    toast("주파수" + (i + 1) + " 선택" + (f ? " (" + f + " MHz)" : " - 주파수를 입력하세요") + (stopped ? " · 기록 정지" : ""));
+    say("주파수 " + (i + 1) + "번" + (f ? ", " + f + " 메가헤르츠" : ", 입력 필요") + (stopped ? ", 기록 정지" : ""));
   }
   function stopChannel(c, showMsg) {
     if (c.timer) { clearInterval(c.timer); c.timer = null; }
@@ -502,6 +506,11 @@
       var dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "→" : "←") : (dy > 0 ? "↓" : "↑");
       lastKeyEl.textContent = " [스와이프 " + dir + " (" + Math.round(dx) + "," + Math.round(dy) + ")]";
       var major = Math.max(Math.abs(dx), Math.abs(dy)), minor = Math.min(Math.abs(dx), Math.abs(dy));
+      if (remoteOn) {
+        // 스와이프 끝 지점 아래에 있는 버튼이 따라서 눌리지 않도록 클릭을 막음
+        if (e.cancelable) e.preventDefault();
+        swallowClickUntil = Date.now() + 700;
+      }
       if (remoteOn && major > minor * 1.5) {
         var st = SWIPE_MAP[dir];
         if (st) startRecording(st, true);
@@ -511,6 +520,12 @@
   // touchcancel도 같이 처리: 브라우저가 스와이프를 가로채도(예: 당겨서 새로고침) 방향을 인식
   document.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
   document.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
+  // 리모컨 모드: 스와이프가 아래 패널을 스크롤하거나 화면을 당기지 않도록 이동 동작을 막음
+  document.addEventListener("touchmove", function (e) {
+    if (!remoteOn || e.touches.length > 1) return;
+    if (e.target && e.target.tagName === "INPUT") return;
+    if (e.cancelable) e.preventDefault();
+  }, { capture: true, passive: false });
 
   /* ---------- 터치 리모컨 모드 ---------- */
   // 이 리모컨은 버튼을 누르면 화면 스와이프를 보냄 (실측):
