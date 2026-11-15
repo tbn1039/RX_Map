@@ -403,6 +403,29 @@
     if (e.key === " " && !(e.target && e.target.tagName === "INPUT")) e.preventDefault();
   });
 
+  // 진단용: 리모컨이 키가 아니라 터치/클릭/스와이프로 동작하는지 확인
+  var tStart = null;
+  document.addEventListener("pointerdown", function (e) {
+    lastKeyEl.textContent = " [" + e.pointerType + " 눌림 (" + Math.round(e.clientX) + "," + Math.round(e.clientY) + ")]";
+  }, true);
+  document.addEventListener("pointercancel", function (e) {
+    lastKeyEl.textContent = " [" + e.pointerType + " 취소(스크롤/스와이프 가능성)]";
+  }, true);
+  document.addEventListener("touchstart", function (e) {
+    var t = e.changedTouches[0];
+    tStart = { x: t.clientX, y: t.clientY };
+  }, { capture: true, passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (!tStart) return;
+    var t = e.changedTouches[0];
+    var dx = t.clientX - tStart.x, dy = t.clientY - tStart.y;
+    tStart = null;
+    if (Math.abs(dx) > 30 || Math.abs(dy) > 30) {
+      var dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "→" : "←") : (dy > 0 ? "↓" : "↑");
+      lastKeyEl.textContent = " [스와이프 " + dir + " (" + Math.round(dx) + "," + Math.round(dy) + ")]";
+    }
+  }, { capture: true, passive: true });
+
   function render() {
     document.getElementById("count").textContent = "기록 " + records.length + "건 (최근 5건 표시)";
     var ul = document.getElementById("list");
